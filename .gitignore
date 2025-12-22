@@ -14,6 +14,9 @@ env/
 *.egg-info/
 *.egg
 
+Document/
+.DatabaseDraft.docx
+
 # Django
 *.log
 *.pot
