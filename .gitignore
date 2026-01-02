@@ -15,7 +15,7 @@ env/
 *.egg
 
 Document/
-DatabaseDraft.docx
+*.docx
 
 # Django
 *.log

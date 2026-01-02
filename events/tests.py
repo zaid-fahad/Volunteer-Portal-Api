@@ -52,8 +52,7 @@ class EventsAutomatedTests(APITestCase):
         
         # Verify Participation
         part = Participation.objects.get(event_id=event_id, volunteer=self.volunteer)
-        self.assertEqual(part.attendance, 'Yes')
-        self.assertIsNotNone(part.attendance_at)
+        self.assertIsNotNone(part.punch_in)
 
         # Admin Complete Event
         self.client.force_authenticate(user=self.admin)
@@ -70,8 +69,9 @@ class EventsAutomatedTests(APITestCase):
             title="Report Event", date="2025-01-01", start_time="10:00", end_time="11:00", 
             participants=5, log_hour=1, venue="Home", organizer="Me", status="Done"
         )
+        from django.utils import timezone
         Participation.objects.create(
-            event=event, volunteer=self.volunteer, attendance="Yes"
+            event=event, volunteer=self.volunteer, punch_in=timezone.now()
         )
 
         self.client.force_authenticate(user=self.volunteer)

@@ -18,7 +18,7 @@ class ParticipationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Participation
         fields = '__all__'
-        read_only_fields = ('status', 'attendance', 'volunteer') # Prevent user from manually setting these initially if we auto-set them or if they should be system managed.
+        read_only_fields = ('status', 'volunteer', 'log_hours') # Removed attendance
 
     def validate(self, attrs):
         event = attrs.get('event')

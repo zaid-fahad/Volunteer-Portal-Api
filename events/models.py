@@ -1,4 +1,6 @@
 from django.db import models
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 class Event(models.Model):
     class Status(models.TextChoices):
@@ -20,9 +22,9 @@ class Event(models.Model):
     # Re-reading: "Participance Log Hour". Maybe "Participance" is one int field? 
     # I will assume "Participants" is a count for now.
     
-    log_hour = models.FloatField(help_text="Hours to be logged for this event")
+    log_hour = models.FloatField(null=True, blank=True, help_text="Hours to be logged for this event. Calculated automatically from start/end time if left blank.")
     venue = models.CharField(max_length=255)
-    organizer = models.CharField(max_length=255) # Could be a User ForeignKey, but requirements say "Organizer" field. Using CharField for flexibility as requested.
+    organizer = models.CharField(max_length=255, null=True, blank=True) # Could be a User ForeignKey, but requirements say "Organizer" field. Using CharField for flexibility as requested.
     remarks = models.TextField(blank=True, null=True)
     
     status = models.CharField(
@@ -43,22 +45,12 @@ class Event(models.Model):
     def __str__(self):
         return self.title
 
-from django.contrib.auth import get_user_model
-User = get_user_model()
 
 class Participation(models.Model):
     class Type(models.TextChoices):
         WORKING = 'Working', 'Working'
         AUDIENCE = 'Audience', 'Audience'
 
-    class Attendance(models.TextChoices):
-        PENDING = 'Pending', 'Pending'
-        YES = 'Yes', 'Yes'
-        NO = 'No', 'No'
-    
-    # Assuming 'Status' field here refers to the status of the request (e.g., Requested, Approved)
-    # Since it wasn't strictly defined in values, I'll add a generic one or assume it might be 'Active'/'Pending' like Event.
-    # I will use a simple CharField for now or Pending/Approved options.
     class Status(models.TextChoices):
         PENDING = 'Pending', 'Pending'
         APPROVED = 'Approved', 'Approved'
@@ -74,13 +66,9 @@ class Participation(models.Model):
         default=Status.PENDING
     )
     
-    attendance = models.CharField(
-        max_length=20,
-        choices=Attendance.choices,
-        default=Attendance.PENDING
-    )
-    
-    attendance_at = models.DateTimeField(null=True, blank=True, help_text="Punch In Time")
+    punch_in = models.DateTimeField(null=True, blank=True)
+    punch_out = models.DateTimeField(null=True, blank=True)
+    log_hours = models.FloatField(default=0.0, help_text="Total hours logged for this session.")
 
     created_at = models.DateTimeField(auto_now_add=True)
 

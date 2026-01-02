@@ -8,11 +8,13 @@ from .views import (
     VolunteerDetailView,
     PasswordManagementView,
     VolunteerCSVExportView,
-    VolunteerCSVImportView
+    VolunteerCSVImportView,
+    ProfileView
 )
 
 urlpatterns = [
     path('auth/login/', CustomLoginView.as_view(), name='token_obtain_pair'),
+    path('auth/profile/', ProfileView.as_view(), name='profile'),
     path('auth/password-reset/', PasswordManagementView.as_view(), name='password_management'),
     path('auth/register/volunteer/', VolunteerSignupView.as_view(), name='volunteer_signup'),
     path('auth/register/admin/', AdminSignupView.as_view(), name='admin_signup'),

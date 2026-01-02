@@ -11,6 +11,7 @@ class User(AbstractUser):
     # Common fields (from doc: Phone)
     # First_name, Last_name, Email are already in AbstractUser
     phone = models.CharField(max_length=15, blank=True, null=True)
+    initial_password = models.CharField(max_length=128, blank=True, null=True, help_text="Stored plain text password for initial login visibility")
     
     # Volunteer specific fields (from doc: Department, Gender)
     # These can be blank for Admins

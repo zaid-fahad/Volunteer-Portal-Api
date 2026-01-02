@@ -1,11 +1,14 @@
 import logging
 from django.shortcuts import render
+from datetime import date, datetime, timedelta
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Event
-from .serializers import EventSerializer
+from .models import Event, Participation
+from .serializers import EventSerializer, ParticipationSerializer
+from .notifications_serializers import NotificationSerializer
+from notifications.models import Notification
 from accounts.permissions import IsAdminUser
 
 logger = logging.getLogger('events')
@@ -17,9 +20,29 @@ class EventViewSet(viewsets.ModelViewSet):
     queryset = Event.objects.all()
     serializer_class = EventSerializer
 
+    def _calculate_log_hour(self, instance):
+        if instance.start_time and instance.end_time:
+            dummy_date = date.today()
+            start = datetime.combine(dummy_date, instance.start_time)
+            end = datetime.combine(dummy_date, instance.end_time)
+            
+            # Handle cases where end time is after midnight
+            if end <= start:
+                end += timedelta(days=1)
+                
+            delta = end - start
+            instance.log_hour = round(delta.total_seconds() / 3600, 2)
+            instance.save()
+
     def perform_create(self, serializer):
         event = serializer.save()
-        logger.info(f"Event created: {event.title} by {self.request.user.username}")
+        self._calculate_log_hour(event)
+        logger.info(f"Event created: {event.title} (Auto-calculated hours: {event.log_hour}) by {self.request.user.username}")
+
+    def perform_update(self, serializer):
+        event = serializer.save()
+        self._calculate_log_hour(event)
+        logger.info(f"Event updated: {event.title} (Recalculated hours: {event.log_hour}) by {self.request.user.username}")
 
     def get_permissions(self):
         """
@@ -76,60 +99,51 @@ class EventViewSet(viewsets.ModelViewSet):
                 # I will filter by [ACTIVE, PENDING, DONE]
                 events = queryset.filter(status__in=[Event.Status.ACTIVE, Event.Status.PENDING, Event.Status.DONE])
         
-        page = self.paginate_queryset(events)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
         serializer = self.get_serializer(events, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated], url_path='punch-in')
-    def punch_in(self, request, pk=None):
+
+from rest_framework.views import APIView
+
+class PunchInView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, event_id):
         from django.db import transaction
         from django.utils import timezone
 
         user = request.user
-        if user.role != 'VOLUNTEER':
-             return Response({'error': 'Only volunteers can punch in.'}, status=403)
 
-        # 1. Try to find existing participation (No Lock)
         try:
-            event = Event.objects.get(pk=pk)
-        except Event.DoesNotExist:
-            return Response({'error': 'Event not found'}, status=404)
+            event = Event.objects.get(pk=event_id)
+        except (Event.DoesNotExist, ValueError):
+            return Response({'error': 'Event not found or invalid ID'}, status=404)
 
         participation = Participation.objects.filter(event=event, volunteer=user).first()
 
-        # 2. If exists, just update (No Atomic needed for this specific user's row update)
         if participation:
-            if participation.attendance == Participation.Attendance.YES:
+            if participation.punch_in and not participation.punch_out:
                  return Response({'message': 'Already punched in.'}, status=200)
 
-            participation.attendance = Participation.Attendance.YES
-            participation.attendance_at = timezone.now()
+            participation.punch_in = timezone.now()
+            participation.punch_out = None 
             participation.save()
             logger_participation.info(f"Volunteer {user.username} PUNCHED IN to event {event.title}")
             return Response({'status': 'Punched in successfully', 'participation_id': participation.id})
 
-        # 3. If NOT exists, we are "Joining". This needs Lock.
+        # If NOT exists, Join & Punch In
         try:
             with transaction.atomic():
-                # Re-fetch event with lock to ensure quota safety
-                event_locked = Event.objects.select_for_update().get(pk=pk)
-                
-                # Check Quota
+                event_locked = Event.objects.select_for_update().get(pk=event_id)
                 current_count = event_locked.participations.count()
                 if event_locked.participants > 0 and current_count >= event_locked.participants:
                     logger_participation.warning(f"Quota filled for event {event_locked.title}. User {user.username} rejected.")
                     return Response({'error': f"Event '{event_locked.title}' is full. Quota filled."}, status=400)
 
-                # Create
                 participation = Participation.objects.create(
                     volunteer=user,
                     event=event_locked,
-                    attendance=Participation.Attendance.YES,
-                    attendance_at=timezone.now(),
+                    punch_in=timezone.now(),
                     status=Participation.Status.APPROVED
                 )
                 logger_participation.info(f"Volunteer {user.username} JOINED and PUNCHED IN to event {event_locked.title}")
@@ -138,13 +152,54 @@ class EventViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-from .models import Participation
-from .serializers import ParticipationSerializer
+class PunchOutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, event_id):
+        from django.utils import timezone
+        user = request.user
+        
+        try:
+            participation = Participation.objects.filter(event_id=event_id, volunteer=user).first()
+        except ValueError:
+            return Response({'error': 'Invalid Event ID'}, status=404)
+            
+        if not participation:
+            return Response({'error': 'Participation not found'}, status=404)
+        
+        if not participation.punch_in:
+            return Response({'error': 'You must punch in before punching out'}, status=400)
+            
+        now = timezone.now()
+        participation.punch_out = now
+        
+        # Calculate Logged Hours
+        if participation.punch_in:
+            duration = now - participation.punch_in
+            delta_hours = duration.total_seconds() / 3600.0
+            participation.log_hours = round(delta_hours, 2)
+            
+        participation.save()
+        
+        logger_participation.info(f"Volunteer {user.username} PUNCHED OUT from event {participation.event.title} (Logged: {participation.log_hours} hrs)")
+        return Response({
+            'status': 'Punched out successfully', 
+            'participation_id': participation.id,
+            'log_hours': participation.log_hours
+        })
+
 
 class ParticipationViewSet(viewsets.ModelViewSet):
     queryset = Participation.objects.all()
     serializer_class = ParticipationSerializer
     permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'], url_path='types')
+    def get_types(self, request):
+        types = Participation.Type.choices
+        # Format as list of labels/values for the frontend
+        data = [{'value': v, 'label': l} for v, l in types]
+        return Response(data)
 
     def get_queryset(self):
         # Volunteers see only their own participations, Admins see all
@@ -201,8 +256,30 @@ class VolunteerReportView(APIView):
                 'event_status': p.event.status,
                 'type': p.type,
                 'status': p.status,
-                'attendance': p.attendance,
-                'attendance_at': p.attendance_at
+                'punch_in': p.punch_in,
+                'punch_out': p.punch_out,
+                'log_hours': p.log_hours
             })
             
         return Response(data)
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        qs = self.request.user.notifications.all()
+        unread = self.request.query_params.get('unread')
+        if unread == 'true':
+            qs = qs.unread()
+        return qs
+
+    @action(detail=True, methods=['post'])
+    def mark_as_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.mark_as_read()
+        return Response({'status': 'marked as read'})
+
+    @action(detail=False, methods=['post'])
+    def mark_all_as_read(self, request):
+        self.request.user.notifications.mark_all_as_read()
+        return Response({'status': 'all marked as read'})

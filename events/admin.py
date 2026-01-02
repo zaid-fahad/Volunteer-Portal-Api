@@ -12,6 +12,6 @@ class EventAdmin(admin.ModelAdmin):
 
 @admin.register(Participation)
 class ParticipationAdmin(admin.ModelAdmin):
-    list_display = ('volunteer', 'event', 'type', 'status', 'attendance')
-    list_filter = ('type', 'status', 'attendance')
+    list_display = ('volunteer', 'event', 'type', 'status', 'punch_in', 'punch_out')
+    list_filter = ('type', 'status')
     search_fields = ('volunteer__username', 'event__title')

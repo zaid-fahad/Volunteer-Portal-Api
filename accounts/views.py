@@ -43,12 +43,35 @@ class AdminSignupView(generics.CreateAPIView):
         user = serializer.save()
         logger_admin.info(f"New Admin registered: {user.username}")
 
-class VolunteerListView(generics.ListAPIView):
+class VolunteerListView(generics.ListCreateAPIView):
     queryset = User.objects.filter(role=User.Role.VOLUNTEER)
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
-class VolunteerDetailView(generics.RetrieveAPIView):
+    def perform_create(self, serializer):
+        import secrets
+        import string
+        
+        # Generate random password
+        alphabet = string.ascii_letters + string.digits
+        random_password = ''.join(secrets.choice(alphabet) for _ in range(10))
+        
+        # Derive email from username
+        username = serializer.validated_data.get('username')
+        email = f"{username}@iub.edu.bd"
+        
+        # Save user with generated fields
+        user = serializer.save(
+            role=User.Role.VOLUNTEER,
+            email=email,
+            initial_password=random_password
+        )
+        user.set_password(random_password)
+        user.save()
+        
+        logger_admin.info(f"Admin {self.request.user.username} added volunteer: {user.username} with generated email and password.")
+
+class VolunteerDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.filter(role=User.Role.VOLUNTEER)
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
@@ -98,8 +121,37 @@ class PasswordManagementView(APIView):
         user.save()
         return Response({'success': True, 'message': 'Your password has been changed successfully.'})
 
+class ProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    def put(self, request):
+        user = request.user
+        data = request.data
+        
+        # Define allowed fields based on role
+        if user.role == User.Role.VOLUNTEER:
+            # Volunteers can update name, phone, and department
+            allowed_fields = ['first_name', 'last_name', 'phone', 'department']
+        else:
+            # Admins can update name and phone (department usually not applicable for admin profile UI)
+            allowed_fields = ['first_name', 'last_name', 'phone']
+            
+        filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
+            
+        serializer = UserSerializer(user, data=filtered_data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 import csv
 from django.http import HttpResponse
+
+from django.db.models import Sum, Count
 
 class VolunteerCSVExportView(APIView):
     permission_classes = [IsAdminUser]
@@ -109,11 +161,30 @@ class VolunteerCSVExportView(APIView):
         response['Content-Disposition'] = 'attachment; filename="volunteers.csv"'
 
         writer = csv.writer(response)
-        writer.writerow(['ID', 'Username', 'First Name', 'Last Name', 'Email', 'Phone', 'Department', 'Gender'])
+        writer.writerow([
+            'ID', 'Username', 'First Name', 'Last Name', 'Email', 
+            'Phone', 'Department', 'Gender', 'Total Events', 'Total Hours'
+        ])
 
-        volunteers = User.objects.filter(role=User.Role.VOLUNTEER)
+        # Fetch volunteers with annotated stats for performance
+        volunteers = User.objects.filter(role=User.Role.VOLUNTEER).annotate(
+            event_count=Count('participations'),
+            hours_sum=Sum('participations__event__log_hour')
+        )
+
         for v in volunteers:
-            writer.writerow([v.id, v.username, v.first_name, v.last_name, v.email, v.phone, v.department, v.gender])
+            writer.writerow([
+                v.id, 
+                v.username, 
+                v.first_name, 
+                v.last_name, 
+                v.email, 
+                v.phone, 
+                v.department, 
+                v.gender,
+                v.event_count,
+                v.hours_sum or 0.0
+            ])
 
         return response
 
@@ -131,36 +202,49 @@ class VolunteerCSVImportView(APIView):
         decoded_file = file.read().decode('utf-8').splitlines()
         reader = csv.DictReader(decoded_file)
         
-        count = 0
-        errors = []
-        
-        for row in reader:
-            try:
-                # Basic check for required
-                username = row.get('Username') or row.get('username')
-                email = row.get('Email') or row.get('email')
-                password = "DefaultPassword123!" # Hardcoded default for import, admin should force reset or include in CSV
+        import io
+        import secrets
+        import string
 
-                if not username:
-                    continue
-                
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['ID (Username)', 'Name', 'Email', 'Initial Password', 'Import Status'])
+        
+        count = 0
+        for row in reader:
+            username = row.get('Username') or row.get('username')
+            if not username:
+                continue
+            
+            try:
                 if User.objects.filter(username=username).exists():
-                    errors.append(f"Skipped {username}: already exists")
+                    writer.writerow([username, '', '', '', 'Skipped: Already exists'])
                     continue
+
+                random_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(10))
+                email = row.get('Email') or row.get('email') or f"{username}@iub.edu.bd"
+                first_name = row.get('First Name') or row.get('first_name') or row.get('name') or f"Volunteer({username})"
 
                 user = User.objects.create_user(
                     username=username,
                     email=email,
-                    password=password,
-                    first_name=row.get('First Name', ''),
-                    last_name=row.get('Last Name', ''),
+                    password=random_password,
+                    first_name=first_name,
+                    last_name=row.get('Last Name') or row.get('last_name') or '',
                     role=User.Role.VOLUNTEER,
-                    phone=row.get('Phone', ''),
-                    department=row.get('Department', ''),
-                    gender=row.get('Gender', '')
+                    phone=row.get('Phone') or row.get('phone') or '',
+                    department=row.get('Department') or row.get('department') or '',
+                    gender=row.get('Gender') or row.get('gender') or ''
                 )
+                
+                user.initial_password = random_password
+                user.save()
+                
+                writer.writerow([username, first_name, email, random_password, 'Success'])
                 count += 1
             except Exception as e:
-                errors.append(f"Error importing row {row}: {str(e)}")
+                writer.writerow([username, '', '', '', f'Error: {str(e)}'])
 
-        return Response({'success': True, 'imported': count, 'errors': errors})
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="imported_credentials_{count}.csv"'
+        return response
