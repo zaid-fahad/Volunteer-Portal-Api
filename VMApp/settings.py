@@ -18,12 +18,10 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load environment variables
+load_dotenv() # Load from .env
 env_path = BASE_DIR / '.env.dev'
-
-# Check if file exists before loading (for debugging)
-if not env_path.exists():
-    print(f"CRITICAL: .env.dev not found at {env_path}")
-else:
+if env_path.exists():
     load_dotenv(env_path)
 
 
@@ -130,7 +128,7 @@ WSGI_APPLICATION = 'VMApp.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.getenv('DATABASE_URL'),
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
         conn_max_age=600,
         conn_health_checks=True,
     )
