@@ -12,3 +12,6 @@ if [ -n "$DATABASE_URL" ]; then
 else
     echo "DATABASE_URL not set. Skipping migrations during build phase."
 fi
+
+# Collect static files
+python manage.py collectstatic --no-input
