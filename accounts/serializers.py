@@ -18,6 +18,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['username'] = self.user.username
         data['name'] = f"{self.user.first_name} {self.user.last_name}".strip() or self.user.username
         data['email'] = self.user.email
+        data['image_url'] = self.user.image_url
         return data
 
 class UserSerializer(serializers.ModelSerializer):
@@ -25,7 +26,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'gender', 'initial_password', 'total_hours']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'initial_password', 'total_hours']
 
     def get_total_hours(self, obj):
         from django.db.models import Sum
@@ -56,10 +57,12 @@ class BaseRegistrationSerializer(serializers.ModelSerializer):
 
 class VolunteerRegistrationSerializer(BaseRegistrationSerializer):
     department = serializers.CharField(required=True)
-    gender = serializers.CharField(required=True)
+    alternative_email = serializers.EmailField(required=False)
+    blood_group = serializers.CharField(required=False)
+    image_url = serializers.URLField(required=False)
 
     class Meta(BaseRegistrationSerializer.Meta):
-        fields = BaseRegistrationSerializer.Meta.fields + ['department', 'gender']
+        fields = BaseRegistrationSerializer.Meta.fields + ['department', 'alternative_email', 'blood_group', 'image_url']
 
     def create(self, validated_data):
         validated_data['role'] = User.Role.VOLUNTEER

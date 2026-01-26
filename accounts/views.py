@@ -49,12 +49,10 @@ class VolunteerListView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        import secrets
-        import string
+        from .utils import create_random_password
         
         # Generate random password
-        alphabet = string.ascii_letters + string.digits
-        random_password = ''.join(secrets.choice(alphabet) for _ in range(10))
+        random_password = create_random_password()
         
         # Derive email from username
         username = serializer.validated_data.get('username')
@@ -162,8 +160,8 @@ class VolunteerCSVExportView(APIView):
 
         writer = csv.writer(response)
         writer.writerow([
-            'ID', 'Username', 'First Name', 'Last Name', 'Email', 
-            'Phone', 'Department', 'Gender', 'Total Events', 'Total Hours'
+            'ID', 'Username', 'Full Name', 'Email', 
+            'Phone', 'Department', 'Total Events', 'Total Hours'
         ])
 
         # Fetch volunteers with annotated stats for performance
@@ -176,12 +174,10 @@ class VolunteerCSVExportView(APIView):
             writer.writerow([
                 v.id, 
                 v.username, 
-                v.first_name, 
-                v.last_name, 
+                v.first_name,  
                 v.email, 
                 v.phone, 
                 v.department, 
-                v.gender,
                 v.event_count,
                 v.hours_sum or 0.0
             ])
@@ -203,16 +199,15 @@ class VolunteerCSVImportView(APIView):
         reader = csv.DictReader(decoded_file)
         
         import io
-        import secrets
-        import string
+        from .utils import create_random_password, drive_to_img_src
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['ID (Username)', 'Name', 'Email', 'Initial Password', 'Import Status'])
+        writer.writerow(['ID (Username)', 'Full Name', 'Email', 'Initial Password', 'Import Status'])
         
         count = 0
         for row in reader:
-            username = row.get('Username') or row.get('username')
+            username = row.get('IUB ID')
             if not username:
                 continue
             
@@ -221,20 +216,22 @@ class VolunteerCSVImportView(APIView):
                     writer.writerow([username, '', '', '', 'Skipped: Already exists'])
                     continue
 
-                random_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(10))
-                email = row.get('Email') or row.get('email') or f"{username}@iub.edu.bd"
-                first_name = row.get('First Name') or row.get('first_name') or row.get('name') or f"Volunteer({username})"
+                random_password = create_random_password()
+                email = row.get('Email Address') or row.get('IUB email') or f"{username}@iub.edu.bd"
+                first_name = row.get('Full Name') or f"Volunteer({username})"
 
                 user = User.objects.create_user(
                     username=username,
                     email=email,
                     password=random_password,
                     first_name=first_name,
-                    last_name=row.get('Last Name') or row.get('last_name') or '',
+                    last_name=row.get('Last Name'),
                     role=User.Role.VOLUNTEER,
-                    phone=row.get('Phone') or row.get('phone') or '',
-                    department=row.get('Department') or row.get('department') or '',
-                    gender=row.get('Gender') or row.get('gender') or ''
+                    phone=row.get('Phone Number'),
+                    department=row.get('Majoring Department '),
+                    alternative_email = row.get('Alternative email') ,
+                    blood_group = row.get('Blood Group') ,
+                    image_url = drive_to_img_src(row.get('Photo (Please upload a decent photo)')) ,
                 )
                 
                 user.initial_password = random_password
