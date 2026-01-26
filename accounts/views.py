@@ -195,9 +195,20 @@ class VolunteerCSVImportView(APIView):
         if not file.name.endswith('.csv'):
              return Response({'error': 'File must be CSV'}, status=status.HTTP_400_BAD_REQUEST)
 
-        decoded_file = file.read().decode('utf-8').splitlines()
+        try:
+            content = file.read().decode('utf-8-sig') # Handle UTF-8 with BOM
+            decoded_file = content.splitlines()
+        except UnicodeDecodeError:
+            file.seek(0)
+            content = file.read().decode('latin-1') 
+            decoded_file = content.splitlines()
+
         reader = csv.DictReader(decoded_file)
         
+        # Log headers for debugging
+        headers = reader.fieldnames
+        logger_admin.info(f"CSV Import attempt. Headers found: {headers}")
+
         import io
         from .utils import create_random_password, drive_to_img_src
 
@@ -205,42 +216,76 @@ class VolunteerCSVImportView(APIView):
         writer = csv.writer(output)
         writer.writerow(['ID (Username)', 'Full Name', 'Email', 'Initial Password', 'Import Status'])
         
+        # Map headers to be case-insensitive and stripped
+        header_map = {h.strip().lower(): h for h in headers} if headers else {}
+        
+        def get_row_value(row, *possible_keys):
+            for key in possible_keys:
+                # Try exact match first
+                if key in row:
+                    return row[key]
+                # Try case-insensitive stripped match
+                lower_key = key.strip().lower()
+                if lower_key in header_map:
+                    return row[header_map[lower_key]]
+            return None
+
         count = 0
+        skipped = 0
+        error_count = 0
+        
         for row in reader:
-            username = row.get('IUB ID')
+            username = get_row_value(row, 'IUB ID', 'ID', 'Username', 'Student ID')
             if not username:
+                skipped += 1
                 continue
+            
+            username = str(username).strip()
             
             try:
                 if User.objects.filter(username=username).exists():
                     writer.writerow([username, '', '', '', 'Skipped: Already exists'])
+                    skipped += 1
                     continue
 
                 random_password = create_random_password()
-                email = row.get('Email Address') or row.get('IUB email') or f"{username}@iub.edu.bd"
-                first_name = row.get('Full Name') or f"Volunteer({username})"
+                email = get_row_value(row, 'Email Address', 'IUB email', 'Email') or f"{username}@iub.edu.bd"
+                full_name = get_row_value(row, 'Full Name', 'Name') or f"Volunteer({username})"
+                last_name = get_row_value(row, 'Last Name') or ""
+                phone = get_row_value(row, 'Phone Number', 'Phone')
+                
+                # Handle scientific notation for phone numbers (common Excel issue)
+                if phone and ('E+' in str(phone) or 'e+' in str(phone)):
+                    try:
+                        phone = str(int(float(phone)))
+                    except:
+                        pass
 
                 user = User.objects.create_user(
                     username=username,
                     email=email,
                     password=random_password,
-                    first_name=first_name,
-                    last_name=row.get('Last Name'),
+                    first_name=full_name,
+                    last_name=last_name,
                     role=User.Role.VOLUNTEER,
-                    phone=row.get('Phone Number'),
-                    department=row.get('Majoring Department '),
-                    alternative_email = row.get('Alternative email') ,
-                    blood_group = row.get('Blood Group') ,
-                    image_url = drive_to_img_src(row.get('Photo (Please upload a decent photo)')) ,
+                    phone=phone,
+                    department=get_row_value(row, 'Majoring Department ', 'Department', 'Major') or "",
+                    alternative_email = get_row_value(row, 'Alternative email'),
+                    blood_group = get_row_value(row, 'Blood Group'),
+                    image_url = drive_to_img_src(get_row_value(row, 'Photo (Please upload a decent photo)', 'Photo', 'Image')),
                 )
                 
                 user.initial_password = random_password
                 user.save()
                 
-                writer.writerow([username, first_name, email, random_password, 'Success'])
+                writer.writerow([username, full_name, email, random_password, 'Success'])
                 count += 1
             except Exception as e:
+                logger.error(f"Error importing volunteer {username}: {str(e)}")
                 writer.writerow([username, '', '', '', f'Error: {str(e)}'])
+                error_count += 1
+
+        logger_admin.info(f"CSV Import finished. Success: {count}, Skipped (mostly empty rows): {skipped}, Errors: {error_count}")
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="imported_credentials_{count}.csv"'
