@@ -36,6 +36,15 @@ STORAGES = {
     },
 }
 
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CSRF_TRUSTED_ORIGINS = [
+    'https://vms-api.zaidfahad.com',
+]
+CORS_ALLOWED_ORIGINS = [
+    "https://your-frontend-domain.com", 
+    "http://localhost:3000", # Good for local testing
+]
 # Load environment variables
 load_dotenv() # Load from .env
 env_path = BASE_DIR / '.env.dev'
