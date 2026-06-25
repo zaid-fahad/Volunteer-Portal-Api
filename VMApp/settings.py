@@ -18,6 +18,24 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+import os
+from pathlib import Path
+
+# Assuming BASE_DIR is defined at the top of your settings.py
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+
+STATIC_URL = 'static/'
+
+# This is the directory where collectstatic will dump all files
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
+
+# If you are using WhiteNoise, you likely already have this, but ensure it's there:
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
 # Load environment variables
 load_dotenv() # Load from .env
 env_path = BASE_DIR / '.env.dev'
