@@ -45,8 +45,7 @@ class EventsAutomatedTests(APITestCase):
 
         # Volunteer Join/Punch-In
         self.client.force_authenticate(user=self.volunteer)
-        # Using custom action url format for routers
-        url_punch = f'/api/events/{event_id}/punch-in/'
+        url_punch = reverse('punch_in', kwargs={'event_id': event_id})
         response = self.client.post(url_punch)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         

@@ -30,17 +30,22 @@ class Event(models.Model):
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
-        default=Status.PENDING
+        default=Status.PENDING,
+        db_index=True
     )
     
     attendance_status = models.CharField(
         max_length=20,
         choices=AttendanceStatus.choices,
-        default=AttendanceStatus.PENDING
+        default=AttendanceStatus.PENDING,
+        db_index=True
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
 
     def __str__(self):
         return self.title
@@ -58,12 +63,13 @@ class Participation(models.Model):
 
     volunteer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='participations')
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='participations')
-    type = models.CharField(max_length=20, choices=Type.choices, default=Type.WORKING)
+    type = models.CharField(max_length=20, choices=Type.choices, default=Type.WORKING, db_index=True)
     
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
-        default=Status.PENDING
+        default=Status.PENDING,
+        db_index=True
     )
     
     punch_in = models.DateTimeField(null=True, blank=True)
@@ -71,6 +77,9 @@ class Participation(models.Model):
     log_hours = models.FloatField(default=0.0, help_text="Total hours logged for this session.")
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"{self.volunteer.username} - {self.event.title}"

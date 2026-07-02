@@ -17,7 +17,7 @@ class User(AbstractUser):
         O_NEG = "O-", "O Negative"
 
 
-    role = models.CharField(max_length=50, choices=Role.choices, default=Role.VOLUNTEER)
+    role = models.CharField(max_length=50, choices=Role.choices, default=Role.VOLUNTEER, db_index=True)
     
     # Common fields (from doc: Phone)
     # First_name, Last_name, Email are already in AbstractUser

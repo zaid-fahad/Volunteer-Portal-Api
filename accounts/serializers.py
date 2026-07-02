@@ -23,15 +23,24 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     total_hours = serializers.SerializerMethodField()
+    total_events = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'initial_password', 'total_hours']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'initial_password', 'total_hours', 'total_events']
 
     def get_total_hours(self, obj):
-        from django.db.models import Sum
-        total = obj.participations.aggregate(Sum('log_hours'))['log_hours__sum']
+        if hasattr(obj, 'annotated_total_hours'):
+            total = obj.annotated_total_hours
+        else:
+            from django.db.models import Sum
+            total = obj.participations.aggregate(Sum('log_hours'))['log_hours__sum']
         return round(total, 2) if total else 0.0
+
+    def get_total_events(self, obj):
+        if hasattr(obj, 'annotated_total_events'):
+            return obj.annotated_total_events
+        return obj.participations.count()
 
     def validate(self, attrs):
         # If first_name is empty during creation, set it to Volunteer(username)
@@ -81,3 +90,25 @@ class AdminRegistrationSerializer(BaseRegistrationSerializer):
         validated_data['is_staff'] = True
         validated_data['is_superuser'] = True
         return super().create(validated_data)
+
+
+class UserListSerializer(serializers.ModelSerializer):
+    total_hours = serializers.SerializerMethodField()
+    total_events = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'department', 'image_url', 'total_hours', 'total_events']
+
+    def get_total_hours(self, obj):
+        if hasattr(obj, 'annotated_total_hours'):
+            total = obj.annotated_total_hours
+        else:
+            from django.db.models import Sum
+            total = obj.participations.aggregate(Sum('log_hours'))['log_hours__sum']
+        return round(total, 2) if total else 0.0
+
+    def get_total_events(self, obj):
+        if hasattr(obj, 'annotated_total_events'):
+            return obj.annotated_total_events
+        return obj.participations.count()
