@@ -1,15 +1,18 @@
 import logging
 from django.shortcuts import render
 from datetime import date, datetime, timedelta
+from django.db.models import Count
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Event, Participation
-from .serializers import EventSerializer, ParticipationSerializer
+from .serializers import EventSerializer, ParticipationSerializer, EventListSerializer
 from .notifications_serializers import NotificationSerializer
 from notifications.models import Notification
 from accounts.permissions import IsAdminUser
+
+from rest_framework.filters import SearchFilter
 
 logger = logging.getLogger('events')
 logger_participation = logging.getLogger('events.participation')
@@ -17,8 +20,17 @@ logger_participation = logging.getLogger('events.participation')
 # Create your views here.
 
 class EventViewSet(viewsets.ModelViewSet):
-    queryset = Event.objects.all()
+    queryset = Event.objects.all().annotate(
+        annotated_total_participants=Count('participations')
+    )
     serializer_class = EventSerializer
+    filter_backends = [SearchFilter]
+    search_fields = ['title', 'venue', 'organizer']
+
+    def get_serializer_class(self):
+        if self.action in ['list', 'active']:
+            return EventListSerializer
+        return EventSerializer
 
     def _calculate_log_hour(self, instance):
         if instance.start_time and instance.end_time:
@@ -114,12 +126,11 @@ class PunchInView(APIView):
 
         user = request.user
 
+        # Fetch participation first, pre-fetching event details
         try:
-            event = Event.objects.get(pk=event_id)
-        except (Event.DoesNotExist, ValueError):
-            return Response({'error': 'Event not found or invalid ID'}, status=404)
-
-        participation = Participation.objects.filter(event=event, volunteer=user).first()
+            participation = Participation.objects.filter(event_id=event_id, volunteer=user).select_related('event').first()
+        except ValueError:
+            return Response({'error': 'Invalid Event ID'}, status=404)
 
         if participation:
             if participation.punch_in and not participation.punch_out:
@@ -128,13 +139,17 @@ class PunchInView(APIView):
             participation.punch_in = timezone.now()
             participation.punch_out = None 
             participation.save()
-            logger_participation.info(f"Volunteer {user.username} PUNCHED IN to event {event.title}")
+            logger_participation.info(f"Volunteer {user.username} PUNCHED IN to event {participation.event.title}")
             return Response({'status': 'Punched in successfully', 'participation_id': participation.id})
 
-        # If NOT exists, Join & Punch In
+        # If NOT exists, Join & Punch In within a transaction to guarantee quota checks
         try:
             with transaction.atomic():
-                event_locked = Event.objects.select_for_update().get(pk=event_id)
+                try:
+                    event_locked = Event.objects.select_for_update().get(pk=event_id)
+                except Event.DoesNotExist:
+                    return Response({'error': 'Event not found'}, status=404)
+
                 current_count = event_locked.participations.count()
                 if event_locked.participants > 0 and current_count >= event_locked.participants:
                     logger_participation.warning(f"Quota filled for event {event_locked.title}. User {user.username} rejected.")
@@ -160,7 +175,7 @@ class PunchOutView(APIView):
         user = request.user
         
         try:
-            participation = Participation.objects.filter(event_id=event_id, volunteer=user).first()
+            participation = Participation.objects.filter(event_id=event_id, volunteer=user).select_related('event').first()
         except ValueError:
             return Response({'error': 'Invalid Event ID'}, status=404)
             
@@ -205,8 +220,16 @@ class ParticipationViewSet(viewsets.ModelViewSet):
         # Volunteers see only their own participations, Admins see all
         user = self.request.user
         if user.role == 'ADMIN':
-            return Participation.objects.all()
-        return Participation.objects.filter(volunteer=user)
+            queryset = Participation.objects.all()
+        else:
+            queryset = Participation.objects.filter(volunteer=user)
+
+        # Optimize: Support filtering by event directly at database level
+        event_id = self.request.query_params.get('event')
+        if event_id:
+            queryset = queryset.filter(event_id=event_id)
+
+        return queryset
 
     def perform_create(self, serializer):
         from django.db import transaction
@@ -244,8 +267,8 @@ class VolunteerReportView(APIView):
         if request.user.role != 'ADMIN' and request.user.id != pk:
             return Response({'error': 'Permission denied'}, status=403)
         
-        # Get participations
-        participations = Participation.objects.filter(volunteer_id=pk)
+        # Get participations, prefetching the related event details
+        participations = Participation.objects.filter(volunteer_id=pk).select_related('event')
         
         data = []
         for p in participations:
@@ -267,7 +290,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = NotificationSerializer
 
     def get_queryset(self):
-        qs = self.request.user.notifications.all()
+        qs = self.request.user.notifications.all().prefetch_related('actor', 'target')
         unread = self.request.query_params.get('unread')
         if unread == 'true':
             qs = qs.unread()
@@ -283,3 +306,113 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     def mark_all_as_read(self, request):
         self.request.user.notifications.mark_all_as_read()
         return Response({'status': 'all marked as read'})
+
+
+from django.db.models import Sum, Count
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
+class DashboardStatsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        
+        if user.role == 'ADMIN':
+            total_events = Event.objects.count()
+            total_volunteers = User.objects.filter(role=User.Role.VOLUNTEER).count()
+            total_hours = Participation.objects.aggregate(Sum('log_hours'))['log_hours__sum'] or 0.0
+            
+            # Active events with count
+            active_events = Event.objects.filter(status=Event.Status.ACTIVE).annotate(
+                annotated_total_participants=Count('participations')
+            )
+            
+            events_data = []
+            for e in active_events:
+                events_data.append({
+                    'id': e.id,
+                    'title': e.title,
+                    'date': e.date,
+                    'start_time': e.start_time,
+                    'end_time': e.end_time,
+                    'venue': e.venue,
+                    'organizer': e.organizer,
+                    'status': e.status,
+                    'attendance_status': e.attendance_status,
+                    'participants': e.participants,
+                    'participantCount': e.annotated_total_participants
+                })
+
+            return Response({
+                'totalEvents': total_events,
+                'totalVolunteers': total_volunteers,
+                'totalHours': round(total_hours, 2),
+                'activeEvents': events_data
+            })
+            
+        else:
+            active_events = Event.objects.filter(status=Event.Status.ACTIVE).annotate(
+                annotated_total_participants=Count('participations')
+            )
+            
+            events_data = []
+            for e in active_events:
+                events_data.append({
+                    'id': e.id,
+                    'title': e.title,
+                    'date': e.date,
+                    'start_time': e.start_time,
+                    'end_time': e.end_time,
+                    'venue': e.venue,
+                    'organizer': e.organizer,
+                    'status': e.status,
+                    'attendance_status': e.attendance_status,
+                    'participants': e.participants,
+                    'participantCount': e.annotated_total_participants
+                })
+            
+            my_participations = Participation.objects.filter(volunteer=user).select_related('event')
+            
+            registered_events_data = []
+            in_progress_event = None
+            
+            for p in my_participations:
+                if p.event.status != Event.Status.DONE:
+                    registered_events_data.append({
+                        'id': p.event.id,
+                        'title': p.event.title,
+                        'date': p.event.date,
+                        'start_time': p.event.start_time,
+                        'end_time': p.event.end_time,
+                        'venue': p.event.venue,
+                        'organizer': p.event.organizer,
+                        'status': p.event.status,
+                        'attendance_status': p.event.attendance_status,
+                        'participants': p.event.participants
+                    })
+                
+                if p.punch_in and not p.punch_out:
+                    in_progress_event = {
+                        'id': p.event.id,
+                        'title': p.event.title,
+                        'date': p.event.date,
+                        'start_time': p.event.start_time,
+                        'end_time': p.event.end_time,
+                        'venue': p.event.venue,
+                        'organizer': p.event.organizer,
+                        'status': p.event.status,
+                        'attendance_status': p.event.attendance_status,
+                        'participants': p.event.participants
+                    }
+            
+            notifications = user.notifications.all().prefetch_related('actor', 'target')[:10]
+            from .notifications_serializers import NotificationSerializer
+            notifications_data = NotificationSerializer(notifications, many=True).data
+
+            return Response({
+                'events': events_data,
+                'registeredEvents': registered_events_data,
+                'inProgressEvent': in_progress_event,
+                'notifications': notifications_data
+            })

@@ -9,7 +9,8 @@ class EventSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def get_total_participants(self, obj):
-        # Count all participations for this event
+        if hasattr(obj, 'annotated_total_participants'):
+            return obj.annotated_total_participants
         return obj.participations.count()
 
 from .models import Participation
@@ -43,3 +44,19 @@ class ParticipationSerializer(serializers.ModelSerializer):
         # Auto-accept the participation
         validated_data['status'] = Participation.Status.APPROVED # Using APPROVED as 'Accepted'
         return super().create(validated_data)
+
+
+class EventListSerializer(serializers.ModelSerializer):
+    total_participants = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = [
+            'id', 'title', 'date', 'start_time', 'end_time', 'venue', 
+            'organizer', 'status', 'attendance_status', 'participants', 'total_participants'
+        ]
+
+    def get_total_participants(self, obj):
+        if hasattr(obj, 'annotated_total_participants'):
+            return obj.annotated_total_participants
+        return obj.participations.count()

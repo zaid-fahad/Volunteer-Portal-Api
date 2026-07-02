@@ -1,4 +1,5 @@
 import logging
+from django.db.models import Sum, Count
 from rest_framework import generics
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -7,8 +8,11 @@ from .serializers import (
     CustomTokenObtainPairSerializer, 
     VolunteerRegistrationSerializer, 
     AdminRegistrationSerializer, 
-    UserSerializer
+    UserSerializer,
+    UserListSerializer
 )
+
+from rest_framework.filters import SearchFilter
 
 logger = logging.getLogger('accounts')
 logger_admin = logging.getLogger('accounts.admin')
@@ -44,9 +48,14 @@ class AdminSignupView(generics.CreateAPIView):
         logger_admin.info(f"New Admin registered: {user.username}")
 
 class VolunteerListView(generics.ListCreateAPIView):
-    queryset = User.objects.filter(role=User.Role.VOLUNTEER)
-    serializer_class = UserSerializer
+    queryset = User.objects.filter(role=User.Role.VOLUNTEER).annotate(
+        annotated_total_hours=Sum('participations__log_hours'),
+        annotated_total_events=Count('participations')
+    )
+    serializer_class = UserListSerializer
     permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter]
+    search_fields = ['username', 'first_name', 'last_name', 'email', 'department']
 
     def perform_create(self, serializer):
         from .utils import create_random_password
@@ -70,7 +79,10 @@ class VolunteerListView(generics.ListCreateAPIView):
         logger_admin.info(f"Admin {self.request.user.username} added volunteer: {user.username} with generated email and password.")
 
 class VolunteerDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = User.objects.filter(role=User.Role.VOLUNTEER)
+    queryset = User.objects.filter(role=User.Role.VOLUNTEER).annotate(
+        annotated_total_hours=Sum('participations__log_hours'),
+        annotated_total_events=Count('participations')
+    )
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
@@ -123,7 +135,11 @@ class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        user = User.objects.filter(id=request.user.id).annotate(
+            annotated_total_hours=Sum('participations__log_hours'),
+            annotated_total_events=Count('participations')
+        ).first()
+        serializer = UserSerializer(user)
         return Response(serializer.data)
 
     def put(self, request):
@@ -142,7 +158,13 @@ class ProfileView(APIView):
             
         serializer = UserSerializer(user, data=filtered_data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+            updated_user = serializer.save()
+            # Reload with annotations for clean response serialization
+            annotated_user = User.objects.filter(id=updated_user.id).annotate(
+                annotated_total_hours=Sum('participations__log_hours'),
+                annotated_total_events=Count('participations')
+            ).first()
+            serializer = UserSerializer(annotated_user)
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -230,60 +252,63 @@ class VolunteerCSVImportView(APIView):
                     return row[header_map[lower_key]]
             return None
 
+        from django.db import transaction
+
         count = 0
         skipped = 0
         error_count = 0
         
-        for row in reader:
-            username = get_row_value(row, 'IUB ID', 'ID', 'Username', 'Student ID')
-            if not username:
-                skipped += 1
-                continue
-            
-            username = str(username).strip()
-            
-            try:
-                if User.objects.filter(username=username).exists():
-                    writer.writerow([username, '', '', '', 'Skipped: Already exists'])
+        with transaction.atomic():
+            for row in reader:
+                username = get_row_value(row, 'IUB ID', 'ID', 'Username', 'Student ID')
+                if not username:
                     skipped += 1
                     continue
+                
+                username = str(username).strip()
+                
+                try:
+                    if User.objects.filter(username=username).exists():
+                        writer.writerow([username, '', '', '', 'Skipped: Already exists'])
+                        skipped += 1
+                        continue
 
-                random_password = create_random_password()
-                email = get_row_value(row, 'Email Address', 'IUB email', 'Email') or f"{username}@iub.edu.bd"
-                full_name = get_row_value(row, 'Full Name', 'Name') or f"Volunteer({username})"
-                last_name = get_row_value(row, 'Last Name') or ""
-                phone = get_row_value(row, 'Phone Number', 'Phone')
-                
-                # Handle scientific notation for phone numbers (common Excel issue)
-                if phone and ('E+' in str(phone) or 'e+' in str(phone)):
-                    try:
-                        phone = str(int(float(phone)))
-                    except:
-                        pass
+                    random_password = create_random_password()
+                    email = get_row_value(row, 'Email Address', 'IUB email', 'Email') or f"{username}@iub.edu.bd"
+                    full_name = get_row_value(row, 'Full Name', 'Name') or f"Volunteer({username})"
+                    last_name = get_row_value(row, 'Last Name') or ""
+                    phone = get_row_value(row, 'Phone Number', 'Phone')
+                    
+                    # Handle scientific notation for phone numbers (common Excel issue)
+                    if phone and ('E+' in str(phone) or 'e+' in str(phone)):
+                        try:
+                            phone = str(int(float(phone)))
+                        except:
+                            pass
 
-                user = User.objects.create_user(
-                    username=username,
-                    email=email,
-                    password=random_password,
-                    first_name=full_name,
-                    last_name=last_name,
-                    role=User.Role.VOLUNTEER,
-                    phone=phone,
-                    department=get_row_value(row, 'Majoring Department ', 'Department', 'Major') or "",
-                    alternative_email = get_row_value(row, 'Alternative email'),
-                    blood_group = get_row_value(row, 'Blood Group'),
-                    image_url = drive_to_img_src(get_row_value(row, 'Photo (Please upload a decent photo)', 'Photo', 'Image')),
-                )
-                
-                user.initial_password = random_password
-                user.save()
-                
-                writer.writerow([username, full_name, email, random_password, 'Success'])
-                count += 1
-            except Exception as e:
-                logger.error(f"Error importing volunteer {username}: {str(e)}")
-                writer.writerow([username, '', '', '', f'Error: {str(e)}'])
-                error_count += 1
+                    user = User.objects.create_user(
+                        username=username,
+                        email=email,
+                        password=random_password,
+                        first_name=full_name,
+                        last_name=last_name,
+                        role=User.Role.VOLUNTEER,
+                        phone=phone,
+                        department=get_row_value(row, 'Majoring Department ', 'Department', 'Major') or "",
+                        alternative_email = get_row_value(row, 'Alternative email'),
+                        blood_group = get_row_value(row, 'Blood Group'),
+                        image_url = drive_to_img_src(get_row_value(row, 'Photo (Please upload a decent photo)', 'Photo', 'Image')),
+                    )
+                    
+                    user.initial_password = random_password
+                    user.save()
+                    
+                    writer.writerow([username, full_name, email, random_password, 'Success'])
+                    count += 1
+                except Exception as e:
+                    logger.error(f"Error importing volunteer {username}: {str(e)}")
+                    writer.writerow([username, '', '', '', f'Error: {str(e)}'])
+                    error_count += 1
 
         logger_admin.info(f"CSV Import finished. Success: {count}, Skipped (mostly empty rows): {skipped}, Errors: {error_count}")
 

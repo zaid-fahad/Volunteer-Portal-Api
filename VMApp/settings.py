@@ -46,7 +46,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000", # Good for local testing
 ]
 # Load environment variables
-load_dotenv() # Load from .env
+load_dotenv(BASE_DIR / '.env')
 env_path = BASE_DIR / '.env.dev'
 if env_path.exists():
     load_dotenv(env_path)
@@ -103,7 +103,16 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-    'DEFAULT_PAGINATION_CLASS': None,
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+    'PAGE_SIZE': 100,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/minute',
+        'user': '1000/hour'
+    }
 }
 
 from datetime import timedelta
@@ -121,6 +130,7 @@ AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.gzip.GZipMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
