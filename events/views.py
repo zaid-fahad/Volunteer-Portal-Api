@@ -311,7 +311,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
-    queryset = Announcement.objects.all()
+    queryset = Announcement.objects.select_related('author').all()
     serializer_class = AnnouncementSerializer
 
     def get_permissions(self):

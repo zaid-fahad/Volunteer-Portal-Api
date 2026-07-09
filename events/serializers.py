@@ -69,5 +69,5 @@ class AnnouncementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Announcement
-        fields = ['id', 'title', 'content', 'author', 'author_name', 'created_at', 'updated_at']
+        fields = ['id', 'title', 'content', 'date', 'author', 'author_name', 'created_at', 'updated_at']
         read_only_fields = ['author', 'created_at', 'updated_at']
