@@ -19,9 +19,19 @@ class ParticipationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Participation
         fields = '__all__'
-        read_only_fields = ('status', 'volunteer', 'log_hours') # Removed attendance
+        read_only_fields = ('volunteer',)
 
     def validate(self, attrs):
+        request = self.context.get('request')
+        user = request.user if request else None
+
+        # Prevent volunteers from setting status or log_hours
+        if user and user.role == 'VOLUNTEER':
+            if 'status' in attrs:
+                attrs.pop('status')
+            if 'log_hours' in attrs:
+                attrs.pop('log_hours')
+
         event = attrs.get('event')
         if not event:
              # In partial updates, event might not be in attrs, get from instance
@@ -30,19 +40,22 @@ class ParticipationSerializer(serializers.ModelSerializer):
              else:
                  raise serializers.ValidationError("Event is required.")
 
-        # Check if event is full
-        current_count = event.participations.count()
-        # 'participants' field in Event model is the capacity limit
-        limit = event.participants 
+        # Check if event is full (only when creating new participation)
+        if not self.instance:
+            current_count = event.participations.count()
+            limit = event.participants 
 
-        if limit > 0 and current_count >= limit:
-             raise serializers.ValidationError(f"Event '{event.title}' is full. Quota filled.")
+            if limit > 0 and current_count >= limit:
+                 raise serializers.ValidationError(f"Event '{event.title}' is full. Quota filled.")
 
         return attrs
 
     def create(self, validated_data):
-        # Auto-accept the participation
-        validated_data['status'] = Participation.Status.APPROVED # Using APPROVED as 'Accepted'
+        # Auto-accept the participation for volunteers
+        request = self.context.get('request')
+        user = request.user if request else None
+        if user and user.role == 'VOLUNTEER':
+            validated_data['status'] = Participation.Status.APPROVED
         return super().create(validated_data)
 
 
