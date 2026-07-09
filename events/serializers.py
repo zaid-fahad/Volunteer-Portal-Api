@@ -60,3 +60,14 @@ class EventListSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'annotated_total_participants'):
             return obj.annotated_total_participants
         return obj.participations.count()
+
+
+from .models import Announcement
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    author_name = serializers.ReadOnlyField(source='author.username')
+
+    class Meta:
+        model = Announcement
+        fields = ['id', 'title', 'content', 'author', 'author_name', 'created_at', 'updated_at']
+        read_only_fields = ['author', 'created_at', 'updated_at']

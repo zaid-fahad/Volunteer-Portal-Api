@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from notifications.models import Notification
 from django.contrib.contenttypes.models import ContentType
-from .models import Event
+from .models import Event, Announcement
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -32,6 +32,12 @@ class NotificationSerializer(serializers.ModelSerializer):
                     'id': obj.actor.id,
                     'title': obj.actor.title
                 }
+            elif isinstance(obj.actor, Announcement):
+                return {
+                    'type': 'announcement',
+                    'id': obj.actor.id,
+                    'title': obj.actor.title
+                }
             return {'type': 'unknown', 'display': str(obj.actor)}
         return None
 
@@ -41,6 +47,12 @@ class NotificationSerializer(serializers.ModelSerializer):
             if isinstance(obj.target, Event):
                 return {
                     'type': 'event',
+                    'id': obj.target.id,
+                    'title': obj.target.title
+                }
+            elif isinstance(obj.target, Announcement):
+                return {
+                    'type': 'announcement',
                     'id': obj.target.id,
                     'title': obj.target.title
                 }
