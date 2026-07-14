@@ -288,7 +288,7 @@ LOGGING = {
 
 # SMTP Email Configuration
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-if EMAIL_HOST_USER:
+if EMAIL_HOST_USER and EMAIL_HOST_USER != 'your-email@gmail.com' and EMAIL_HOST_USER.strip() != '':
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
