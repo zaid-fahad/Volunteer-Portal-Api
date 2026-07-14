@@ -27,7 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'initial_password', 'total_hours', 'total_events']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'is_rover', 'initial_password', 'total_hours', 'total_events']
 
     def get_total_hours(self, obj):
         if hasattr(obj, 'annotated_total_hours'):
@@ -98,7 +98,7 @@ class UserListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'image_url', 'initial_password', 'total_hours', 'total_events']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'image_url', 'is_rover', 'initial_password', 'total_hours', 'total_events']
 
     def get_total_hours(self, obj):
         if hasattr(obj, 'annotated_total_hours'):

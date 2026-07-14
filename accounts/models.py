@@ -22,6 +22,7 @@ class User(AbstractUser):
     # Common fields (from doc: Phone)
     # First_name, Last_name, Email are already in AbstractUser
     phone = models.CharField(max_length=15, blank=True, null=True)
+    is_rover = models.BooleanField(default=False, help_text="Indicates if the user is a Rover Scout volunteer")
     initial_password = models.CharField(max_length=128, blank=True, null=True, help_text="Stored plain text password for initial login visibility")
     
     # Volunteer specific fields (from doc: Department, BloodGroup)

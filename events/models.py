@@ -18,6 +18,7 @@ class Event(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
     participants = models.IntegerField(default=0, help_text="Number of participants needed or registered") # Renamed from 'Participance' for clarity, assuming it means count or limit? If it means ManyToMany users, we should clarify. User likely means count or description based on normal context, but I will assume simple integer or string for now. "Participance" usually means Participation. Given "Participance Log Hour", maybe it's just a text field or int. I will use IntegerField for now as 'capacity' or 'participants count'. 
+    max_rovers = models.IntegerField(default=0, help_text="Maximum number of Rover Scout volunteers allowed for this event")
     # WAIT, 'Participance' might mean the list of users? But usually that's separate. 
     # Re-reading: "Participance Log Hour". Maybe "Participance" is one int field? 
     # I will assume "Participants" is a count for now.
