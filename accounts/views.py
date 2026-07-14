@@ -315,3 +315,48 @@ class VolunteerCSVImportView(APIView):
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="imported_credentials_{count}.csv"'
         return response
+
+from django.core.mail import send_mail
+from django.conf import settings
+
+class SendVolunteerCredentialsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, id):
+        if request.user.role != 'ADMIN':
+            return Response({'error': 'Only admins can send credential emails.'}, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            volunteer = User.objects.get(id=id, role=User.Role.VOLUNTEER)
+        except User.DoesNotExist:
+            return Response({'error': 'Volunteer not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not volunteer.initial_password:
+            return Response({'error': 'No generated password found for this volunteer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Retrieve email to use
+        to_email = volunteer.email or f"{volunteer.username}@iub.edu.bd"
+
+        subject = "Your DOSA Volunteer Portal Credentials"
+        message = (
+            f"Hello {volunteer.first_name or 'Volunteer'},\n\n"
+            f"Your account has been created on the DOSA Volunteer Portal.\n\n"
+            f"Here are your login credentials:\n"
+            f"Student ID (Username): {volunteer.username}\n"
+            f"Initial Password: {volunteer.initial_password}\n\n"
+            f"You can log in at: http://localhost:3000/login\n\n"
+            f"Best regards,\n"
+            f"DOSA Admin Team"
+        )
+
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL or 'no-reply@iub.edu.bd',
+                [to_email],
+                fail_silently=False,
+            )
+            return Response({'success': f'Credentials email successfully sent to {to_email}'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': f'Failed to send email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

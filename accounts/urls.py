@@ -9,7 +9,8 @@ from .views import (
     PasswordManagementView,
     VolunteerCSVExportView,
     VolunteerCSVImportView,
-    ProfileView
+    ProfileView,
+    SendVolunteerCredentialsView
 )
 
 urlpatterns = [
@@ -21,6 +22,7 @@ urlpatterns = [
     # Volunteer management
     path('volunteers/', VolunteerListView.as_view(), name='volunteer_list'),
     path('volunteers/<int:id>/', VolunteerDetailView.as_view(), name='volunteer_detail'),
+    path('volunteers/<int:id>/send-credentials/', SendVolunteerCredentialsView.as_view(), name='send_volunteer_credentials'),
     path('volunteers/export/', VolunteerCSVExportView.as_view(), name='volunteer_export'),
     path('volunteers/import/', VolunteerCSVImportView.as_view(), name='volunteer_import'),
 ]
