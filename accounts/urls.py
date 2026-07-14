@@ -10,7 +10,9 @@ from .views import (
     VolunteerCSVExportView,
     VolunteerCSVImportView,
     ProfileView,
-    SendVolunteerCredentialsView
+    SendVolunteerCredentialsView,
+    EmailConfigurationView,
+    EmailLogListView
 )
 
 urlpatterns = [
@@ -25,4 +27,7 @@ urlpatterns = [
     path('volunteers/<int:id>/send-credentials/', SendVolunteerCredentialsView.as_view(), name='send_volunteer_credentials'),
     path('volunteers/export/', VolunteerCSVExportView.as_view(), name='volunteer_export'),
     path('volunteers/import/', VolunteerCSVImportView.as_view(), name='volunteer_import'),
+    # Email settings
+    path('email-config/', EmailConfigurationView.as_view(), name='email_config'),
+    path('email-logs/', EmailLogListView.as_view(), name='email_logs'),
 ]

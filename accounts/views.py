@@ -316,8 +316,52 @@ class VolunteerCSVImportView(APIView):
         response['Content-Disposition'] = f'attachment; filename="imported_credentials_{count}.csv"'
         return response
 
-from django.core.mail import send_mail
+from django.core.mail import send_mail, get_connection
 from django.conf import settings
+from .models import EmailConfiguration, EmailLog
+from .serializers import EmailConfigurationSerializer, EmailLogSerializer
+
+def get_email_sender_and_connection():
+    config = EmailConfiguration.objects.filter(is_active=True).first()
+    if config and config.email_host_user:
+        connection = get_connection(
+            backend='django.core.mail.backends.smtp.EmailBackend',
+            host=config.email_host,
+            port=config.email_port,
+            username=config.email_host_user,
+            password=config.email_host_password or '',
+            use_tls=config.email_use_tls,
+        )
+        from_email = config.default_from_email or config.email_host_user
+        return connection, from_email
+    return None, getattr(settings, 'DEFAULT_FROM_EMAIL', 'no-reply@iub.edu.bd')
+
+def send_volunteer_email_logged(subject, message, to_email, sender_user=None):
+    connection, from_email = get_email_sender_and_connection()
+    try:
+        if connection:
+            send_mail(subject, message, from_email, [to_email], connection=connection, fail_silently=False)
+        else:
+            send_mail(subject, message, from_email, [to_email], fail_silently=False)
+        
+        EmailLog.objects.create(
+            recipient=to_email,
+            subject=subject,
+            status='Success',
+            sender=sender_user
+        )
+        return True, None
+    except Exception as e:
+        error_msg = str(e)
+        EmailLog.objects.create(
+            recipient=to_email,
+            subject=subject,
+            status='Failed',
+            error_message=error_msg,
+            sender=sender_user
+        )
+        return False, error_msg
+
 
 class SendVolunteerCredentialsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -334,7 +378,6 @@ class SendVolunteerCredentialsView(APIView):
         if not volunteer.initial_password:
             return Response({'error': 'No generated password found for this volunteer.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Retrieve email to use
         to_email = volunteer.email or f"{volunteer.username}@iub.edu.bd"
 
         subject = "Your DOSA Volunteer Portal Credentials"
@@ -349,14 +392,113 @@ class SendVolunteerCredentialsView(APIView):
             f"DOSA Admin Team"
         )
 
-        try:
-            send_mail(
-                subject,
-                message,
-                settings.DEFAULT_FROM_EMAIL or 'no-reply@iub.edu.bd',
-                [to_email],
-                fail_silently=False,
-            )
+        success, error_msg = send_volunteer_email_logged(subject, message, to_email, sender_user=request.user)
+        if success:
             return Response({'success': f'Credentials email successfully sent to {to_email}'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': f'Failed to send email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'error': f'Failed to send email: {error_msg}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class EmailConfigurationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        config = EmailConfiguration.objects.first()
+        if not config:
+            config = EmailConfiguration.objects.create(
+                email_host='smtp.gmail.com',
+                email_port=587,
+                email_use_tls=True,
+                email_host_user='your-email@gmail.com',
+                email_host_password='',
+                default_from_email='your-email@gmail.com',
+                is_active=False
+            )
+        return config
+
+    def get(self, request):
+        if request.user.role != 'ADMIN':
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        config = self.get_object()
+        serializer = EmailConfigurationSerializer(config)
+        return Response(serializer.data)
+
+    def post(self, request):
+        if request.user.role != 'ADMIN':
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        
+        config = self.get_object()
+        
+        # Scenario: Sending a test email
+        if 'test_recipient' in request.data:
+            recipient = request.data.get('test_recipient')
+            if not recipient:
+                return Response({'error': 'test_recipient email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Temporary config parameters to test before saving
+            test_host = request.data.get('email_host', config.email_host)
+            test_port = int(request.data.get('email_port', config.email_port))
+            test_use_tls = request.data.get('email_use_tls', config.email_use_tls)
+            test_user = request.data.get('email_host_user', config.email_host_user)
+            test_password = request.data.get('email_host_password')
+            
+            # If password is empty in test payload, fall back to already saved password
+            if not test_password and test_user == config.email_host_user:
+                test_password = config.email_host_password
+
+            subject = "DOSA Volunteer Portal SMTP Connection Test"
+            message = "Congratulations! Your volunteer portal SMTP settings are configured correctly and working."
+            
+            try:
+                test_connection = get_connection(
+                    backend='django.core.mail.backends.smtp.EmailBackend',
+                    host=test_host,
+                    port=test_port,
+                    username=test_user,
+                    password=test_password or '',
+                    use_tls=test_use_tls,
+                )
+                from_email = request.data.get('default_from_email', test_user)
+                send_mail(subject, message, from_email, [recipient], connection=test_connection, fail_silently=False)
+                
+                # Log success
+                EmailLog.objects.create(
+                    recipient=recipient,
+                    subject=subject,
+                    status='Success',
+                    sender=request.user
+                )
+                return Response({'success': f'Test email sent successfully to {recipient}'}, status=status.HTTP_200_OK)
+            except Exception as e:
+                # Log failure
+                EmailLog.objects.create(
+                    recipient=recipient,
+                    subject=subject,
+                    status='Failed',
+                    error_message=str(e),
+                    sender=request.user
+                )
+                return Response({'error': f'SMTP Connection Test Failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Standard config save/update
+        serializer = EmailConfigurationSerializer(config, data=request.data, partial=True)
+        if serializer.is_valid():
+            # If email_host_password is provided in request, write it
+            password = request.data.get('email_host_password')
+            if password is not None:
+                serializer.save(email_host_password=password)
+            else:
+                serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class EmailLogListView(generics.ListAPIView):
+    serializer_class = EmailLogSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter]
+    search_fields = ['recipient', 'subject', 'status']
+
+    def get_queryset(self):
+        if self.request.user.role != 'ADMIN':
+            return EmailLog.objects.none()
+        return EmailLog.objects.all().order_by('-sent_at')

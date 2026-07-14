@@ -27,3 +27,16 @@ class CustomUserAdmin(UserAdmin):
         return "No Image"
     # Set the column name in the admin table
     display_image.short_description = 'Profile Picture'
+
+from .models import EmailConfiguration, EmailLog
+
+@admin.register(EmailConfiguration)
+class EmailConfigurationAdmin(admin.ModelAdmin):
+    list_display = ['email_host_user', 'email_host', 'email_port', 'email_use_tls', 'is_active']
+    list_filter = ['is_active']
+
+@admin.register(EmailLog)
+class EmailLogAdmin(admin.ModelAdmin):
+    list_display = ['recipient', 'subject', 'sent_at', 'status', 'sender']
+    list_filter = ['status', 'sent_at']
+    search_fields = ['recipient', 'subject', 'error_message']
