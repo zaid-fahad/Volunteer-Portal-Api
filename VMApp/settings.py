@@ -10,47 +10,20 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
 import os
+import sys
+from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-import os
-from pathlib import Path
-
-# Assuming BASE_DIR is defined at the top of your settings.py
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-
-STATIC_URL = 'static/'
-
-# This is the directory where collectstatic will dump all files
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
-
-# If you are using WhiteNoise, you likely already have this, but ensure it's there:
-STORAGES = {
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
-
-
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-CSRF_TRUSTED_ORIGINS = [
-    'https://vms-api.zaidfahad.com',
-]
-CORS_ALLOWED_ORIGINS = [
-    "https://your-frontend-domain.com", 
-    "http://localhost:3000", # Good for local testing
-]
 # Load environment variables
 load_dotenv(BASE_DIR / '.env')
 env_path = BASE_DIR / '.env.dev'
 if env_path.exists():
     load_dotenv(env_path)
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -59,22 +32,11 @@ if env_path.exists():
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-rksftem!^56ibhitcch8y80$^rq*r$6s(o5m9fyg3squa!*vr-')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
-
-# Explicitly allow headers to prevent stripping
-from corsheaders.defaults import default_headers
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    'authorization',
-]
-
-
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -160,11 +122,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'VMApp.wsgi.application'
 
-
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Database configuration
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
@@ -176,8 +136,6 @@ if DATABASE_URL:
         )
     }
 else:
-    # If DATABASE_URL is missing during build, use a dummy backend 
-    # to avoid 'ENGINE' errors and 'sqlite3' dependency.
     print("WARNING: DATABASE_URL not found in environment variables.")
     DATABASES = {
         'default': {
@@ -185,11 +143,6 @@ else:
         }
     }
 
-import sys
-
-# ... keep your existing Supabase DATABASES config ...
-
-# Add this at the very bottom of settings.py
 if 'test' in sys.argv:
     DATABASES['default'] = {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -220,41 +173,52 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-# settings.py
-
 STATIC_URL = 'static/'
-STATICFILES_DIRS = [BASE_DIR / 'static'] # Where you put your dev files
-STATIC_ROOT = BASE_DIR / 'staticfiles'   # Where collectstatic puts them
+STATICFILES_DIRS = [BASE_DIR / 'static'] 
+STATIC_ROOT = BASE_DIR / 'staticfiles'  
 
-STORAGES = {
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
-
-# Only use this if you want WhiteNoise to take over during development
-WHITENOISE_USE_FINDERS = True
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+if not DEBUG:
+    STORAGES = {
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+
+# Security, CORS & Proxies
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://vms-api.zaidfahad.com',
+]
+
+CORS_ALLOWED_ORIGINS = [
+    "https://vms-api.zaidfahad.com", 
+    "http://localhost:3000", 
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# Explicitly allow headers to prevent stripping
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'authorization',
+]
+
+
 # Logging Configuration
 # https://docs.djangoproject.com/en/5.2/topics/logging/
-
-import os
 
 LOGS_DIR = BASE_DIR / 'logs'
 if not os.path.exists(LOGS_DIR):
@@ -294,30 +258,43 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
-        'accounts': { # Generic accounts logger
+        'accounts': { 
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
         },
-        'accounts.admin': { # Specific for Admin actions
+        'accounts.admin': { 
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
-        'accounts.volunteer': { # Specific for Volunteer actions
+        'accounts.volunteer': { 
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
-        'events': { # Generic events logger
+        'events': { 
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
         },
-        'events.participation': { # Specific for Participation/Punching
+        'events.participation': { 
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
     },
 }
+
+# SMTP Email Configuration
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+if EMAIL_HOST_USER and EMAIL_HOST_USER != 'your-email@gmail.com' and EMAIL_HOST_USER.strip() != '':
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@iub.edu.bd')

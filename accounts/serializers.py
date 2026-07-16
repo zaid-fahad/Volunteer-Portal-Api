@@ -27,7 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'initial_password', 'total_hours', 'total_events']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'blood_group', 'alternative_email', 'image_url', 'is_rover', 'initial_password', 'total_hours', 'total_events']
 
     def get_total_hours(self, obj):
         if hasattr(obj, 'annotated_total_hours'):
@@ -98,7 +98,7 @@ class UserListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'department', 'image_url', 'total_hours', 'total_events']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'phone', 'role', 'department', 'image_url', 'is_rover', 'initial_password', 'total_hours', 'total_events']
 
     def get_total_hours(self, obj):
         if hasattr(obj, 'annotated_total_hours'):
@@ -112,3 +112,30 @@ class UserListSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'annotated_total_events'):
             return obj.annotated_total_events
         return obj.participations.count()
+
+from .models import EmailConfiguration, EmailLog
+
+class EmailConfigurationSerializer(serializers.ModelSerializer):
+    has_password = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmailConfiguration
+        fields = ['id', 'email_host', 'email_port', 'email_use_tls', 'email_host_user', 'email_host_password', 'default_from_email', 'is_active', 'has_password']
+        extra_kwargs = {
+            'email_host_password': {'write_only': True, 'required': False}
+        }
+
+    def get_has_password(self, obj):
+        return bool(obj.email_host_password)
+
+class EmailLogSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmailLog
+        fields = ['id', 'recipient', 'subject', 'sent_at', 'status', 'error_message', 'sender_name']
+
+    def get_sender_name(self, obj):
+        if obj.sender:
+            return f"{obj.sender.first_name} {obj.sender.last_name}".strip() or obj.sender.username
+        return "System"

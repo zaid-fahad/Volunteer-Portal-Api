@@ -22,6 +22,7 @@ class User(AbstractUser):
     # Common fields (from doc: Phone)
     # First_name, Last_name, Email are already in AbstractUser
     phone = models.CharField(max_length=15, blank=True, null=True)
+    is_rover = models.BooleanField(default=False, help_text="Indicates if the user is a Rover Scout volunteer")
     initial_password = models.CharField(max_length=128, blank=True, null=True, help_text="Stored plain text password for initial login visibility")
     
     # Volunteer specific fields (from doc: Department, BloodGroup)
@@ -33,3 +34,28 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}(@{self.username}) - ({self.role})"
+
+
+class EmailConfiguration(models.Model):
+    email_host = models.CharField(max_length=255, default='smtp.gmail.com')
+    email_port = models.IntegerField(default=587)
+    email_use_tls = models.BooleanField(default=True)
+    email_host_user = models.CharField(max_length=255, blank=True, null=True)
+    email_host_password = models.CharField(max_length=255, blank=True, null=True)
+    default_from_email = models.CharField(max_length=255, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"Email Config ({self.email_host_user})"
+
+
+class EmailLog(models.Model):
+    recipient = models.EmailField()
+    subject = models.CharField(max_length=255)
+    sent_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=50, choices=[('Success', 'Success'), ('Failed', 'Failed')])
+    error_message = models.TextField(blank=True, null=True)
+    sender = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return f"Email to {self.recipient} at {self.sent_at} ({self.status})"

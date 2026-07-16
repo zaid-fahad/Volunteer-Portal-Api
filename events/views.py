@@ -6,10 +6,12 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Event, Participation
-from .serializers import EventSerializer, ParticipationSerializer, EventListSerializer
+from .models import Event, Participation, Announcement
+from .serializers import EventSerializer, ParticipationSerializer, EventListSerializer, AnnouncementSerializer
 from .notifications_serializers import NotificationSerializer
 from notifications.models import Notification
+from notifications.signals import notify
+from django.contrib.contenttypes.models import ContentType
 from accounts.permissions import IsAdminUser
 
 from rest_framework.filters import SearchFilter
@@ -306,6 +308,51 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     def mark_all_as_read(self, request):
         self.request.user.notifications.mark_all_as_read()
         return Response({'status': 'all marked as read'})
+
+
+class AnnouncementViewSet(viewsets.ModelViewSet):
+    queryset = Announcement.objects.select_related('author').all()
+    serializer_class = AnnouncementSerializer
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [IsAuthenticated]
+        else:
+            permission_classes = [IsAdminUser]
+        return [permission() for permission in permission_classes]
+
+    def perform_create(self, serializer):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        # Save announcement with the current admin user as author
+        announcement = serializer.save(author=self.request.user)
+
+        # Broadcast notification to all volunteers
+        volunteers = User.objects.filter(role='VOLUNTEER')
+        notify.send(
+            sender=announcement.author,
+            recipient=volunteers,
+            verb='New Announcement',
+            target=announcement,
+            description=announcement.content
+        )
+
+    def perform_update(self, serializer):
+        announcement = serializer.save()
+
+        # Update the description of associated notifications
+        ct = ContentType.objects.get_for_model(announcement)
+        Notification.objects.filter(target_content_type=ct, target_object_id=announcement.id).update(
+            description=announcement.content
+        )
+
+    def perform_destroy(self, instance):
+        # Delete associated notifications
+        ct = ContentType.objects.get_for_model(instance)
+        Notification.objects.filter(target_content_type=ct, target_object_id=instance.id).delete()
+        
+        instance.delete()
 
 
 from django.db.models import Sum, Count
