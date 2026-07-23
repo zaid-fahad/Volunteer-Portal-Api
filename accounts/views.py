@@ -39,6 +39,24 @@ class VolunteerSignupView(generics.CreateAPIView):
         user = serializer.save()
         logger_volunteer.info(f"New Volunteer registered: {user.username}")
 
+        # Send signup confirmation email automatically
+        to_email = user.email or f"{user.username}@iub.edu.bd"
+        subject = "Welcome to DOSA Volunteer Portal"
+        message = (
+            f"Hello {user.first_name or 'Volunteer'},\n\n"
+            f"Thank you for registering on the DOSA Volunteer Portal!\n\n"
+            f"Your account details:\n"
+            f"Student ID (Username): {user.username}\n"
+            f"Registered Email: {to_email}\n\n"
+            f"You can log in and start tracking your impact at: http://localhost:3000/login\n\n"
+            f"Best regards,\n"
+            f"DOSA Admin Team"
+        )
+        try:
+            send_volunteer_email_logged(subject, message, to_email)
+        except Exception as e:
+            logger.error(f"Failed to send signup confirmation email: {str(e)}")
+
 class AdminSignupView(generics.CreateAPIView):
     serializer_class = AdminRegistrationSerializer
     permission_classes = [AllowAny]
@@ -77,6 +95,23 @@ class VolunteerListView(generics.ListCreateAPIView):
         user.save()
         
         logger_admin.info(f"Admin {self.request.user.username} added volunteer: {user.username} with generated email and password.")
+
+        # Automatically send the credentials email to the volunteer
+        subject = "Your DOSA Volunteer Portal Credentials"
+        message = (
+            f"Hello {user.first_name or 'Volunteer'},\n\n"
+            f"Your account has been created on the DOSA Volunteer Portal.\n\n"
+            f"Here are your login credentials:\n"
+            f"Student ID (Username): {user.username}\n"
+            f"Initial Password: {random_password}\n\n"
+            f"You can log in at: http://localhost:3000/login\n\n"
+            f"Best regards,\n"
+            f"DOSA Admin Team"
+        )
+        try:
+            send_volunteer_email_logged(subject, message, email, sender_user=self.request.user)
+        except Exception as e:
+            logger.error(f"Failed to auto-send credentials email: {str(e)}")
 
 class VolunteerDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.filter(role=User.Role.VOLUNTEER).annotate(
@@ -502,3 +537,73 @@ class EmailLogListView(generics.ListAPIView):
         if self.request.user.role != 'ADMIN':
             return EmailLog.objects.none()
         return EmailLog.objects.all().order_by('-sent_at')
+
+
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+
+class RequestPasswordResetLinkView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = request.data.get('username')
+        if not username:
+            return Response({'error': 'Username/Student ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            # Security: do not leak if username exists or not
+            return Response({'success': True, 'message': 'If the account exists, a reset link has been sent to the registered email.'})
+
+        to_email = user.email or f"{user.username}@iub.edu.bd"
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        
+        origin = request.headers.get('Origin') or request.META.get('HTTP_ORIGIN') or 'http://localhost:3000'
+        reset_link = f"{origin}/password-reset?uid={uid}&token={token}"
+        
+        subject = "Reset Your DOSA Volunteer Portal Password"
+        message = (
+            f"Hello {user.first_name or 'Volunteer'},\n\n"
+            f"We received a request to reset your password on the DOSA Volunteer Portal.\n"
+            f"Click the link below to set a new password:\n\n"
+            f"{reset_link}\n\n"
+            f"If you did not request this, you can safely ignore this email.\n\n"
+            f"Best regards,\n"
+            f"DOSA Admin Team"
+        )
+        
+        success, error_msg = send_volunteer_email_logged(subject, message, to_email)
+        if success:
+            return Response({'success': True, 'message': 'Password reset link sent to registered email.'})
+        return Response({'error': f'Failed to send email: {error_msg}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ConfirmPasswordResetLinkView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        uid = request.data.get('uid')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        
+        if not uid or not token or not new_password:
+            return Response({'error': 'uid, token, and new_password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            uid_decoded = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=uid_decoded)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({'error': 'Invalid reset link.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not default_token_generator.check_token(user, token):
+            return Response({'error': 'Invalid or expired reset link.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user.set_password(new_password)
+        if hasattr(user, 'initial_password'):
+            user.initial_password = ''
+        user.save()
+        
+        logger.info(f"User {user.username} successfully reset password using reset link.")
+        return Response({'success': True, 'message': 'Password has been reset successfully.'})
