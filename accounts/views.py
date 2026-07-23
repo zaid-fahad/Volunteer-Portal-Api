@@ -39,6 +39,24 @@ class VolunteerSignupView(generics.CreateAPIView):
         user = serializer.save()
         logger_volunteer.info(f"New Volunteer registered: {user.username}")
 
+        # Send signup confirmation email automatically
+        to_email = user.email or f"{user.username}@iub.edu.bd"
+        subject = "Welcome to DOSA Volunteer Portal"
+        message = (
+            f"Hello {user.first_name or 'Volunteer'},\n\n"
+            f"Thank you for registering on the DOSA Volunteer Portal!\n\n"
+            f"Your account details:\n"
+            f"Student ID (Username): {user.username}\n"
+            f"Registered Email: {to_email}\n\n"
+            f"You can log in and start tracking your impact at: http://localhost:3000/login\n\n"
+            f"Best regards,\n"
+            f"DOSA Admin Team"
+        )
+        try:
+            send_volunteer_email_logged(subject, message, to_email)
+        except Exception as e:
+            logger.error(f"Failed to send signup confirmation email: {str(e)}")
+
 class AdminSignupView(generics.CreateAPIView):
     serializer_class = AdminRegistrationSerializer
     permission_classes = [AllowAny]
