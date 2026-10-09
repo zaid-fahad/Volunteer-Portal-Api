@@ -21,8 +21,14 @@ RUN pip install -r requirements.txt
 # Copy project
 COPY . /app/
 
+# Ensure entrypoint is executable
+RUN chmod +x /app/entrypoint.sh
+
 # Expose port
 EXPOSE 8000
 
-# Use gunicorn as the default command
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "VMApp.wsgi:application"]
+# Set entrypoint to run migrations and collectstatic
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Use gunicorn as default CMD
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "VMApp.wsgi:application"]
