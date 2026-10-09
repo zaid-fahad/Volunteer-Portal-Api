@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vmapp_backend
     restart: unless-stopped
     env_file:
       - .env
@@ -11,6 +10,12 @@ services:
       - "8000:8000"
     volumes:
       - logs_data:/app/logs
+    networks:
+      - dokploy-network
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
       interval: 30s
@@ -20,3 +25,7 @@ services:
 
 volumes:
   logs_data:
+
+networks:
+  dokploy-network:
+    external: true
