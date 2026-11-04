@@ -116,6 +116,39 @@ class EventViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(events, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated])
+    def team_members(self, request, pk=None):
+        event = self.get_object()
+        user = request.user
+        
+        # Find user's participation in this event
+        my_part = Participation.objects.filter(event=event, volunteer=user).first()
+        if not my_part or not my_part.assigned_team_id:
+            return Response([])
+            
+        # Get fellow volunteers with the same assigned_team_id
+        team_parts = Participation.objects.filter(
+            event=event,
+            assigned_team_id=my_part.assigned_team_id
+        ).select_related('volunteer')
+        
+        members = []
+        for p in team_parts:
+            vol = p.volunteer
+            name = getattr(vol, 'name', '') or f"{getattr(vol, 'first_name', '')} {getattr(vol, 'last_name', '')}".strip() or vol.username
+            members.append({
+                'id': vol.id,
+                'name': name,
+                'student_id': vol.username,
+                'department': getattr(vol, 'department', '') or '',
+                'phone': getattr(vol, 'phone', '') or '',
+                'type': p.type,
+                'assigned_place': p.assigned_place,
+                'is_self': vol.id == user.id
+            })
+            
+        return Response(members)
+
 
 from rest_framework.views import APIView
 
