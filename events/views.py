@@ -500,6 +500,7 @@ class DashboardStatsView(APIView):
 
 import os
 import uuid
+from django.conf import settings
 from rest_framework.parsers import MultiPartParser, FormParser
 
 class MediaUploadView(APIView):
