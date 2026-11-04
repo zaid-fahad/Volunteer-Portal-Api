@@ -360,6 +360,17 @@ class ParticipationViewSet(viewsets.ModelViewSet):
             
             logger_participation.info(f"Participation created for event {event_locked.title} by {self.request.user.username}")
 
+    def perform_update(self, serializer):
+        sub_attendances = serializer.validated_data.get('sub_event_attendances')
+        if sub_attendances is not None and isinstance(sub_attendances, dict):
+            total_sub_hours = sum(
+                float(rec.get('log_hours', 0.0)) for rec in sub_attendances.values()
+                if isinstance(rec, dict) and rec.get('log_hours') is not None
+            )
+            if total_sub_hours > 0 or 'log_hours' not in serializer.validated_data:
+                serializer.validated_data['log_hours'] = round(total_sub_hours, 2)
+        serializer.save()
+
 
 from rest_framework.views import APIView
 
