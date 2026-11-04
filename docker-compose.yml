@@ -10,6 +10,7 @@ services:
       - "8000:8000"
     volumes:
       - logs_data:/app/logs
+      - media_data:/app/media
     networks:
       - dokploy-network
       - default
@@ -25,6 +26,8 @@ services:
 
 volumes:
   logs_data:
+  media_data:
+
 
 networks:
   dokploy-network:

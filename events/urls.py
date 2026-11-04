@@ -1,6 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import EventViewSet, ParticipationViewSet, VolunteerReportView, PunchInView, PunchOutView, NotificationViewSet, DashboardStatsView, AnnouncementViewSet
+from .views import (
+    EventViewSet, ParticipationViewSet, VolunteerReportView, 
+    PunchInView, PunchOutView, NotificationViewSet, 
+    DashboardStatsView, AnnouncementViewSet, MediaUploadView
+)
 
 router = DefaultRouter()
 router.register(r'events', EventViewSet)
@@ -10,8 +14,10 @@ router.register(r'announcements', AnnouncementViewSet, basename='announcement')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('upload/', MediaUploadView.as_view(), name='media_upload'),
     path('punch-in/<int:event_id>/', PunchInView.as_view(), name='punch_in'),
     path('punch-out/<int:event_id>/', PunchOutView.as_view(), name='punch_out'),
     path('reports/volunteer/<int:pk>/', VolunteerReportView.as_view(), name='volunteer_report'),
     path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard_stats'),
 ]
+

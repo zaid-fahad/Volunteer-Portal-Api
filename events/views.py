@@ -463,3 +463,38 @@ class DashboardStatsView(APIView):
                 'inProgressEvent': in_progress_event,
                 'notifications': notifications_data
             })
+
+
+import os
+import uuid
+from rest_framework.parsers import MultiPartParser, FormParser
+
+class MediaUploadView(APIView):
+    permission_classes = [IsAdminUser]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        file_obj = request.FILES.get('file') or request.FILES.get('image')
+        if not file_obj:
+            return Response({'error': 'No file was provided.'}, status=400)
+
+        upload_dir = os.path.join(settings.MEDIA_ROOT, 'convocation')
+        os.makedirs(upload_dir, exist_ok=True)
+
+        ext = os.path.splitext(file_obj.name)[1].lower() or '.jpg'
+        filename = f"{uuid.uuid4().hex}{ext}"
+        filepath = os.path.join(upload_dir, filename)
+
+        with open(filepath, 'wb+') as destination:
+            for chunk in file_obj.chunks():
+                destination.write(chunk)
+
+        media_path = f"{settings.MEDIA_URL.rstrip('/')}/convocation/{filename}"
+        full_url = request.build_absolute_uri(media_path)
+
+        return Response({
+            'url': full_url,
+            'filename': filename,
+            'path': media_path
+        }, status=201)
+

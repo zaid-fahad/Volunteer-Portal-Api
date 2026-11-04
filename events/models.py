@@ -41,6 +41,8 @@ class Event(models.Model):
         default=AttendanceStatus.PENDING,
         db_index=True
     )
+    event_type = models.CharField(max_length=50, default='General Event', help_text="Category of event e.g. General Event or Convocation")
+    convocation_data = models.JSONField(default=dict, blank=True, null=True, help_text="Special configuration, teams, custom volunteer types, and briefings for Convocation")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -64,7 +66,10 @@ class Participation(models.Model):
 
     volunteer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='participations')
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='participations')
-    type = models.CharField(max_length=20, choices=Type.choices, default=Type.WORKING, db_index=True)
+    type = models.CharField(max_length=100, default=Type.WORKING, db_index=True)
+    assigned_team_id = models.CharField(max_length=100, blank=True, null=True, help_text="Assigned Convocation Team ID")
+    assigned_place = models.CharField(max_length=255, blank=True, null=True, help_text="Custom assigned location or post")
+    assigned_coordinator = models.JSONField(default=dict, blank=True, null=True, help_text="Override or cached coordinator details")
     
     status = models.CharField(
         max_length=20,

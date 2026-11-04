@@ -66,7 +66,8 @@ class EventListSerializer(serializers.ModelSerializer):
         model = Event
         fields = [
             'id', 'title', 'date', 'start_time', 'end_time', 'venue', 
-            'organizer', 'status', 'attendance_status', 'participants', 'total_participants', 'max_rovers'
+            'organizer', 'status', 'attendance_status', 'participants', 'total_participants', 'max_rovers',
+            'event_type'
         ]
 
     def get_total_participants(self, obj):
