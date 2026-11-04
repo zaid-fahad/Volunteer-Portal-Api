@@ -70,6 +70,7 @@ class Participation(models.Model):
     assigned_team_id = models.CharField(max_length=100, blank=True, null=True, help_text="Assigned Convocation Team ID")
     assigned_place = models.CharField(max_length=255, blank=True, null=True, help_text="Custom assigned location or post")
     assigned_coordinator = models.JSONField(default=dict, blank=True, null=True, help_text="Override or cached coordinator details")
+    sub_event_attendances = models.JSONField(default=dict, blank=True, help_text="Per sub-event punch logs: {sub_event_id: {punch_in, punch_out, log_hours}}")
     
     status = models.CharField(
         max_length=20,

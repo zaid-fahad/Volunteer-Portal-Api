@@ -160,6 +160,8 @@ class PunchInView(APIView):
         from django.utils import timezone
 
         user = request.user
+        sub_event_id = request.data.get('sub_event_id') or request.query_params.get('sub_event_id')
+        now = timezone.now()
 
         # Fetch participation first, pre-fetching event details
         try:
@@ -168,10 +170,32 @@ class PunchInView(APIView):
             return Response({'error': 'Invalid Event ID'}, status=404)
 
         if participation:
-            if participation.punch_in and not participation.punch_out:
-                 return Response({'message': 'Already punched in.'}, status=200)
+            if sub_event_id:
+                sub_attendances = participation.sub_event_attendances or {}
+                sub_record = sub_attendances.get(sub_event_id, {})
+                if sub_record.get('punch_in') and not sub_record.get('punch_out'):
+                    return Response({'message': 'Already punched in to this sub-event.', 'sub_event_id': sub_event_id}, status=200)
 
-            participation.punch_in = timezone.now()
+                sub_attendances[sub_event_id] = {
+                    'punch_in': now.isoformat(),
+                    'punch_out': None,
+                    'log_hours': 0.0
+                }
+                participation.sub_event_attendances = sub_attendances
+                participation.punch_in = now
+                participation.punch_out = None
+                participation.save()
+                logger_participation.info(f"Volunteer {user.username} PUNCHED IN to sub-event {sub_event_id} of event {participation.event.title}")
+                return Response({
+                    'status': 'Punched in successfully to sub-event',
+                    'participation_id': participation.id,
+                    'sub_event_id': sub_event_id
+                })
+
+            if participation.punch_in and not participation.punch_out:
+                return Response({'message': 'Already punched in.'}, status=200)
+
+            participation.punch_in = now
             participation.punch_out = None 
             participation.save()
             logger_participation.info(f"Volunteer {user.username} PUNCHED IN to event {participation.event.title}")
@@ -190,14 +214,23 @@ class PunchInView(APIView):
                     logger_participation.warning(f"Quota filled for event {event_locked.title}. User {user.username} rejected.")
                     return Response({'error': f"Event '{event_locked.title}' is full. Quota filled."}, status=400)
 
+                sub_attendances = {}
+                if sub_event_id:
+                    sub_attendances[sub_event_id] = {
+                        'punch_in': now.isoformat(),
+                        'punch_out': None,
+                        'log_hours': 0.0
+                    }
+
                 participation = Participation.objects.create(
                     volunteer=user,
                     event=event_locked,
-                    punch_in=timezone.now(),
+                    punch_in=now,
+                    sub_event_attendances=sub_attendances,
                     status=Participation.Status.APPROVED
                 )
                 logger_participation.info(f"Volunteer {user.username} JOINED and PUNCHED IN to event {event_locked.title}")
-                return Response({'status': 'Punched in successfully (joined event)', 'participation_id': participation.id})
+                return Response({'status': 'Punched in successfully (joined event)', 'participation_id': participation.id, 'sub_event_id': sub_event_id})
 
         except Exception as e:
             return Response({'error': str(e)}, status=500)
@@ -207,7 +240,9 @@ class PunchOutView(APIView):
 
     def post(self, request, event_id):
         from django.utils import timezone
+        from datetime import datetime
         user = request.user
+        sub_event_id = request.data.get('sub_event_id') or request.query_params.get('sub_event_id')
         
         try:
             participation = Participation.objects.filter(event_id=event_id, volunteer=user).select_related('event').first()
@@ -217,13 +252,47 @@ class PunchOutView(APIView):
         if not participation:
             return Response({'error': 'Participation not found'}, status=404)
         
+        now = timezone.now()
+
+        if sub_event_id:
+            sub_attendances = participation.sub_event_attendances or {}
+            sub_record = sub_attendances.get(sub_event_id, {})
+            if not sub_record.get('punch_in'):
+                return Response({'error': 'You must punch in to this sub-event before punching out'}, status=400)
+
+            try:
+                p_in = datetime.fromisoformat(sub_record['punch_in'])
+            except Exception:
+                p_in = now
+
+            delta_hours = max(0.0, (now - p_in).total_seconds() / 3600.0)
+            sub_record['punch_out'] = now.isoformat()
+            sub_record['log_hours'] = round(delta_hours, 2)
+            sub_attendances[sub_event_id] = sub_record
+            participation.sub_event_attendances = sub_attendances
+
+            # Sum all completed sub-events
+            total_hours = sum(
+                float(rec.get('log_hours', 0.0)) for rec in sub_attendances.values() if isinstance(rec, dict) and rec.get('log_hours') is not None
+            )
+            participation.log_hours = round(total_hours, 2)
+            participation.punch_out = now
+            participation.save()
+
+            logger_participation.info(f"Volunteer {user.username} PUNCHED OUT from sub-event {sub_event_id} (Session: {sub_record['log_hours']} hrs, Total: {participation.log_hours} hrs)")
+            return Response({
+                'status': 'Punched out successfully from sub-event',
+                'participation_id': participation.id,
+                'sub_event_id': sub_event_id,
+                'sub_event_log_hours': sub_record['log_hours'],
+                'total_log_hours': participation.log_hours,
+                'sub_event_attendances': participation.sub_event_attendances
+            })
+
         if not participation.punch_in:
             return Response({'error': 'You must punch in before punching out'}, status=400)
             
-        now = timezone.now()
         participation.punch_out = now
-        
-        # Calculate Logged Hours
         if participation.punch_in:
             duration = now - participation.punch_in
             delta_hours = duration.total_seconds() / 3600.0
