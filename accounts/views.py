@@ -75,6 +75,11 @@ class VolunteerListView(generics.ListCreateAPIView):
     filter_backends = [SearchFilter]
     search_fields = ['username', 'first_name', 'last_name', 'email', 'department']
 
+    def paginate_queryset(self, queryset):
+        if self.request.query_params.get('all') == 'true':
+            return None
+        return super().paginate_queryset(queryset)
+
     def perform_create(self, serializer):
         from .utils import create_random_password
         

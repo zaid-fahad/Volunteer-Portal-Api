@@ -320,13 +320,19 @@ class ParticipationViewSet(viewsets.ModelViewSet):
         data = [{'value': v, 'label': l} for v, l in types]
         return Response(data)
 
+    def paginate_queryset(self, queryset):
+        # Do not paginate when filtering by event or when all=true is specified
+        if self.request.query_params.get('event') or self.request.query_params.get('all') == 'true':
+            return None
+        return super().paginate_queryset(queryset)
+
     def get_queryset(self):
         # Volunteers see only their own participations, Admins see all
         user = self.request.user
         if user.role == 'ADMIN':
-            queryset = Participation.objects.all()
+            queryset = Participation.objects.all().select_related('volunteer')
         else:
-            queryset = Participation.objects.filter(volunteer=user)
+            queryset = Participation.objects.filter(volunteer=user).select_related('volunteer')
 
         # Optimize: Support filtering by event directly at database level
         event_id = self.request.query_params.get('event')

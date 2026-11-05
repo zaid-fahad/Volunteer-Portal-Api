@@ -16,10 +16,22 @@ class EventSerializer(serializers.ModelSerializer):
 from .models import Participation
 
 class ParticipationSerializer(serializers.ModelSerializer):
+    volunteer_name = serializers.SerializerMethodField()
+    volunteer_student_id = serializers.CharField(source='volunteer.username', read_only=True)
+    volunteer_phone = serializers.CharField(source='volunteer.phone', read_only=True)
+    volunteer_department = serializers.CharField(source='volunteer.department', read_only=True)
+    volunteer_email = serializers.CharField(source='volunteer.email', read_only=True)
+
     class Meta:
         model = Participation
         fields = '__all__'
         read_only_fields = ('volunteer',)
+
+    def get_volunteer_name(self, obj):
+        if obj.volunteer:
+            name = f"{obj.volunteer.first_name or ''} {obj.volunteer.last_name or ''}".strip()
+            return name or obj.volunteer.username
+        return "Unknown"
 
     def validate(self, attrs):
         request = self.context.get('request')
